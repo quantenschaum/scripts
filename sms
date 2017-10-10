@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"send SMS with https://www.sms77.io/"
+
+# wget https://raw.githubusercontent.com/quantenschaum/scripts/master/sms && chmod +x sms
+
+
+def main():
+    from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
+
+    parser = ArgumentParser(
+        description=__doc__,
+        formatter_class=ArgumentDefaultsHelpFormatter,
+        epilog=
+        'see https://www.sms77.io/de/docs/gateway/http-api/sms-versand for API'
+    )
+    parser.add_argument(
+        'to',
+        help=
+        'recipient to send SMS to, supply multiple recipients separated with comma'
+    )
+    parser.add_argument('message', nargs='+', help='message to send')
+    parser.add_argument('-u', '--username', help='the username')
+    parser.add_argument('-p', '--password', help='the API key')
+    parser.add_argument(
+        '-s', '--sender', help='will be shown as sender of the message')
+    parser.add_argument(
+        '-d', '--direct', action='store_true', help='send direct sms')
+    parser.add_argument(
+        '-n',
+        '--dryrun',
+        action='store_true',
+        help='do not actually send the SMS')
+    parser.add_argument(
+        '--delay', help='send SMS with delay (Bsp. 2016-03-04 23:25:04)')
+    parser.add_argument(
+        '--ttl', type=lambda x: 1000 * int(x), help='TTL in seconds')
+    parser.add_argument(
+        '-v', '--verbose', action='store_true', help='verbose logging')
+    parser.add_argument(
+        '--unicode', action='store_true', help='send unicode SMS')
+    parser.add_argument('--flash', action='store_true', help='send flash SMS')
+    parser.add_argument(
+        '--store',
+        action='store_true',
+        help='store username and password in ~/.sms')
+    parser.add_argument(
+        '--balance', action='store_true', help='get balance ()')
+    args = parser.parse_args()
+
+    from requests import get, post
+    from pprint import pprint
+    import json
+    from os.path import expanduser
+    userconf = expanduser("~") + '/.sms'
+    sysconf = '/etc/sms'
+
+    verbose = args.verbose or args.dryrun
+    log = (lambda x: pprint(x)) if verbose else (lambda *x: None)
+
+    try:
+        with open(userconf) as f:
+            data = json.load(f)
+    except:
+        try:
+            with open(sysconf) as f:
+                data = json.load(f)
+        except:
+            data = {}
+
+    if args.username: data['u'] = args.username
+    if args.password: data['p'] = args.password
+
+    if args.store:
+        with open(userconf, 'w') as f:
+            json.dump(data, f)
+        print('stored login data to', userconf)
+        exit()
+
+    for a in ['ttl', 'unicode', 'flash']:
+        if getattr(args, a):
+            assert args.direct, '--{} requires ---direct'.format(a)
+
+    args.username = 'foo'
+
+    if args.balance:
+        r = post('https://gateway.sms77.io/api/balance', data=data)
+        print('balance:', r.text)
+        exit()
+
+    data.update({
+        'to': args.to,
+        'text': ' '.join(args.message),
+        'type': 'direct' if args.direct else 'economy',
+        'debug': 1 if args.dryrun else 0,
+        'details': 1 if verbose else 0,
+        'unicode': 1 if args.unicode else 0,
+    })
+
+    if args.sender: data['from'] = args.sender
+    if args.delay: data['delay'] = args.delay
+    if args.ttl: data['ttl'] = args.ttl
+    if args.flash: data['flash'] = 1
+
+    log(data)
+    r = post('https://gateway.sms77.io/api/sms', data=data)
+    log(r.text)
+    c = int(r.text.split()[0])
+
+    if c != 100:
+        print(r.text)
+        exit(1)
+
+
+main()
