@@ -11,6 +11,9 @@
     - https://trac.ffmpeg.org/wiki/Encode/AAC
     - https://trac.ffmpeg.org/wiki/Seeking
 """
+
+# wget https://raw.githubusercontent.com/quantenschaum/scripts/master/shrink && chmod +x shrink
+
 import sys, os, re
 from subprocess import check_call as call
 from subprocess import Popen, PIPE, STDOUT
