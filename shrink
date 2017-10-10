@@ -1,0 +1,324 @@
+#!/usr/bin/env python
+"""ffmpeg wrapper for transcoding videos.
+
+.. seealso::
+    - https://trac.ffmpeg.org/wiki/Encode/HighQualityAudio
+    - https://trac.ffmpeg.org/wiki/AudioChannelManipulation
+    - https://trac.ffmpeg.org/wiki/Encode/H.264
+    - https://trac.ffmpeg.org/wiki/Encode/H.265
+    - https://trac.ffmpeg.org/wiki/Encode/VP8
+    - https://trac.ffmpeg.org/wiki/Encode/VP9
+    - https://trac.ffmpeg.org/wiki/Encode/AAC
+    - https://trac.ffmpeg.org/wiki/Seeking
+"""
+import sys, os, re
+from subprocess import check_call as call
+from subprocess import Popen, PIPE, STDOUT
+from os.path import dirname, abspath, basename, join, splitext
+
+ffmpeg = 'ffmpeg'
+
+
+def shellquote(s):
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+def batch():
+    cmd = ['nice']
+    cmd += sys.argv
+    cmd += ['--batch-running']
+    cmd = shellquote(' '.join(map(shellquote, cmd)))
+    call('echo {} |batch'.format(cmd), shell=True)
+
+
+def info(args):
+    infile, outfile = files(args)
+    p = Popen([ffmpeg, '-i', infile], stdout=PIPE, stderr=STDOUT)
+    expr = re.compile(r'(?i)stream.+?#0.(\d+).+?(video|audio|subtitle)')
+    streams = {'audio': [], 'video': [], 'subtitle': []}
+    lines = []
+    for l in p.stdout:
+        l = l.strip()
+        print l
+        m = expr.search(l.lower())
+        if m:
+            lines += [l]
+            n, t = int(m.group(1)), m.group(2)
+            if t not in streams:
+                streams[t] = []
+            streams[t].append(n)
+    for l in lines:
+        print l
+    return streams
+
+
+def files(args):
+    infile = abspath(args.input)
+    outfile = join(args.outpath, args.prefix + splitext(basename(infile))[0] +
+                   args.suffix + '.' + args.mux)
+    return infile, outfile
+
+
+def subtitles(args, streams):
+    if 'subtitle' in streams:
+        infile, outfile = files(args)
+        outfile2 = join(dirname(outfile), 'tmp' + basename(outfile))
+        if not args.dry_run:
+            os.rename(outfile, outfile2)
+        cmd = ['mkvmerge', '-o', outfile, outfile2, '-A', '-D', infile]
+        print 'running', ' '.join(cmd)
+        if not args.dry_run:
+            call(cmd)
+            os.remove(outfile2)
+
+
+def crop_detect(args):
+    print 'detecting crop ...'
+    infile, outfile = files(args)
+    cmd = [
+        ffmpeg, '-i', infile, '-preset', 'ultrafast', '-vf', 'cropdetect',
+        '-an', '-sn', '-ss', args.cropoffset, '-t', args.croptime, '-y', '-f',
+        'matroska', '/dev/null'
+    ]
+    if args.dry_run:
+        print ' '.join(cmd)
+        return 'w:h:x:y'
+    p = Popen(cmd, stdout=PIPE, stderr=STDOUT)
+    expr = re.compile(r'(?i)crop=(\d+:\d+:\d+:\d+)')
+    crop = 'ERROR'
+    for l in p.stdout:
+        m = expr.search(l)
+        if m:
+            newcrop = m.group(1)
+            if crop != newcrop:
+                print '\033[1Acrop', newcrop
+            crop = newcrop
+    print 'using crop', crop
+    return crop
+
+
+def addarg(cmd, name, arg):
+    if arg:
+        cmd += [name, arg]
+
+
+def encode(args):
+    infile, outfile = files(args)
+
+    # input file
+    cmd = [ffmpeg, '-i', infile]
+
+    # mapped streams
+    for i in args.map:
+        cmd += ['-map', '0:{}'.format(i)]
+
+    # time options
+    addarg(cmd, '-ss', args.start)
+    addarg(cmd, '-to', args.stop)
+    addarg(cmd, '-t', args.length)
+
+    #video options
+    if args.h264:
+        cmd += ['-codec:v', 'libx264', '-crf', '23', '-preset', 'slower']
+    elif args.h265:
+        cmd += ['-codec:v', 'libx265', '-crf', '25', '-preset', 'slower']
+    elif args.vp9:
+        cmd += ['-codec:v', 'libvpx-vp9', '-crf', '31', '-b:v', '0']
+    else:
+        addarg(cmd, '-codec:v', args.vcodec)
+        addarg(cmd, '-b:v', args.vrate)
+        addarg(cmd, '-crf', args.crf)
+        addarg(cmd, '-preset', args.preset)
+    addarg(cmd, '-tune', args.tune)
+
+    if args.crop:
+        cmd += ['-vf', 'crop=' + args.crop]
+
+    addarg(cmd, '-vf', args.vf)
+
+    # audio options
+    addarg(cmd, '-codec:a', args.acodec)
+
+    if args.acodec != 'copy':
+        addarg(cmd, '-b:a', args.arate)
+        addarg(cmd, '-vbr'
+               if args.acodec == 'libfdk_aac' else '-aq', args.quality)
+        addarg(cmd, '-ac', args.channels)
+        cmd += ['-af', 'aresample=async=1000']
+
+    # subtitle
+    cmd += ['-c:s', 'copy']
+
+    # other options
+    if args.opts:
+        for o in args.opts:
+            cmd += o.split()
+
+    if args.batch:
+        cmd += ['-loglevel', 'error']
+
+    if args.force:
+        cmd.append('-y')
+
+    cmd.append(outfile)
+
+    print ' '.join(cmd)
+    if not args.dry_run:
+        call(cmd)
+
+
+def main():
+    from argparse import ArgumentParser
+
+    parser = ArgumentParser(description=__doc__)
+
+    d = ' [%(default)s]'
+    parser.add_argument(
+        '-m',
+        '--map',
+        metavar='i,j,k,...',
+        type=lambda s: map(int, s.split(',')),
+        help='input substreams to read [map all substreams]')
+    parser.add_argument(
+        '-v',
+        '--vcodec',
+        metavar='encoder',
+        help='video encoder (-codec:v)' + d)
+    parser.add_argument(
+        '--vrate', metavar='bps', help='video bitrate (-b:v)' + d)
+    parser.add_argument(
+        '--vf', metavar='filter', help='video filter (-vf)' + d)
+    parser.add_argument(
+        '-q', '--crf', metavar='quality', help='video quality (-crf)' + d)
+    parser.add_argument(
+        '-e',
+        '--preset',
+        metavar='preset',
+        help='video encoder preset (-preset)' + d)
+    parser.add_argument(
+        '-t', '--tune', metavar='tune', help='video encoder tune (-tune)' + d)
+    parser.add_argument(
+        '--h264',
+        action='store_true',
+        help='use H264 encoder with crf=23, preset=slower')
+    parser.add_argument(
+        '--h265',
+        action='store_true',
+        help='use H265 (HEVC) encoder with crf=25, preset=slower')
+    parser.add_argument(
+        '--vp9', action='store_true', help='use VP9 encoder with crf=31')
+
+    parser.add_argument(
+        '-a',
+        '--acodec',
+        metavar='encoder',
+        help='audio encoder (-codec:a)' + d)
+    parser.add_argument(
+        '--arate', metavar='bps', help='audio bitrate (-b:a)' + d)
+    parser.add_argument(
+        '-r', '--quality', metavar='quality', help='audio quality (-aq)' + d)
+    parser.add_argument(
+        '-c',
+        '--channels',
+        metavar='N',
+        help='number of audio channels/downmix (-ac)' + d)
+
+    parser.add_argument(
+        '-O', dest='opts', help='other options passed to ' + ffmpeg, nargs='*')
+
+    parser.add_argument(
+        '--prefix',
+        metavar='prefix',
+        default='',
+        help='prefix for output file' + d)
+    parser.add_argument(
+        '--suffix',
+        metavar='suffix',
+        default='.shrinked',
+        help='suffix for output file' + d)
+    parser.add_argument(
+        '--mux',
+        metavar='mux',
+        default='mkv',
+        help='file ending/multiplexer' + d)
+    parser.add_argument(
+        '-o',
+        '--outpath',
+        metavar='path',
+        default='.',
+        help='path for output file' + d)
+    parser.add_argument(
+        '-f', '--force', action='store_true', help='overwrite existing file')
+    parser.add_argument(
+        '-i', '--info', action='store_true', help='display input file info')
+    parser.add_argument(
+        '-b', '--batch', action='store_true', help='queue this job with batch')
+    parser.add_argument(
+        '-n',
+        '--dry_run',
+        action='store_true',
+        help='print what would be done')
+    parser.add_argument(
+        '--batch-running',
+        action='store_true',
+        help='indicate that job is running in batch queue (for internal use)')
+    parser.add_argument(
+        '--crop',
+        metavar='w:h:x:y',
+        help='crop video to specified region, disable with 0' + d)
+    parser.add_argument(
+        '--croptime',
+        metavar='ss/hh:mm:ss',
+        default='60',
+        help='crop detect time' + d)
+    parser.add_argument(
+        '--cropoffset',
+        metavar='ss/hh:mm:ss',
+        default='600',
+        help='crop detect offset' + d)
+
+    parser.add_argument(
+        '--start', metavar='ss/hh:mm:ss', help='start offset (-ss)' + d)
+    parser.add_argument(
+        '--stop', metavar='ss/hh:mm:ss', help='stop offset (-to)' + d)
+    parser.add_argument(
+        '--length', metavar='ss/hh:mm:ss', help='video duration (-t)' + d)
+
+    parser.add_argument(
+        '--replace',
+        action='store_true',
+        help='replace input file by transcoded file')
+    parser.add_argument(
+        '--no-merge',
+        action='store_true',
+        help='skip subtitle copy with mkvmerge')
+
+    parser.add_argument('input', help='input file')
+
+    args = parser.parse_args()
+
+    streams = info(args)
+
+    mapsubs = False  #not args.map
+
+    if not args.map:
+        args.map = streams['video'] + streams['audio'] + streams['subtitle']
+
+    if args.info:
+        return
+
+    elif args.batch and not args.batch_running:
+        batch()
+
+    else:
+        if args.crop == '1':
+            args.crop = crop_detect(args)
+        encode(args)
+        if mapsubs and not args.no_merge:
+            subtitles(args, streams)
+        if args.replace:
+            infile, outfile = files(args)
+            os.rename(outfile, infile)
+
+
+main()
