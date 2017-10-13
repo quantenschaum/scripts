@@ -79,8 +79,10 @@ def process(lines):
                         if not u[0]: u[0] = extinf
                         u[0] = (' '.join([prefix, u[0], suffix])).strip()
                         yield u
-                except Exception:
-                    yield '#ERROR: ' + url
+                except Exception as x:
+                    yield [
+                        None, '#{}: {}'.format(str(x).replace('\n', ' '), url)
+                    ]
                 if i: break
 
         prev_line = line
