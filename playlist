@@ -80,7 +80,7 @@ def process(lines):
                         u[0] = (' '.join([prefix, u[0], suffix])).strip()
                         yield u
                 except Exception:
-                    pass
+                    yield '#ERROR: ' + url
                 if i: break
 
         prev_line = line
