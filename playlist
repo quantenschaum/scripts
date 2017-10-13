@@ -39,11 +39,12 @@ def best_variant(url):
 
 
 def read_m3u(url):
-    if not url.endswith('m3u'): return
-    r = requests.get(url)
-    r.raise_for_status()
-    for u in process(r.text.splitlines()):
-        yield u
+    if url.endswith('m3u') or head(url).get(
+            'Content-Type') == 'audio/x-mpegurl':
+        r = requests.get(url)
+        r.raise_for_status()
+        for u in process(r.text.splitlines()):
+            yield u
 
 
 icy_field_names = ['icy-description']  #, 'icy-name', 'icy-genre', 'icy-url']
