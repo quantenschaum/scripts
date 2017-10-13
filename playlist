@@ -52,7 +52,10 @@ def icy_fields(headers):
 
 def streamlink(url):
     from streamlink import streams
-    s = streams(url)
+    try:
+        s = streams(url)
+    except:
+        return
     for k in reversed(s.keys()):
         if k != 'worst':
             url = s[k].url
@@ -94,7 +97,8 @@ def process(lines):
                         yield u
                 except Exception as x:
                     yield [
-                        None, '#{}: {}'.format(str(x).replace('\n', ' '), url)
+                        None, '#{}: {}'.format(
+                            repr(x).replace('\n', ' '), url)
                     ]
                 if i: break
 
