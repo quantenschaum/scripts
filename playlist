@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+"""read input file, one URL per line and output an M3U playlist"""
+
+import requests
+
+
+def not_raising(func, log=0):
+    import traceback
+
+    def logging_func(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except:
+            if log:
+                traceback.print_exc()
+
+    return logging_func
+
+
+def head(url):
+    return requests.head(url).headers
+
+
+def best_variant(url):
+    if not url.endswith('m3u8'): return
+    import m3u8
+    m3u = m3u8.load(url)
+    if not m3u.is_variant: return
+    bw, res, stream = 0, 0, None
+    for s in m3u.playlists:
+        i = s.stream_info
+        r = (i.resolution[0] * i.resolution[1]) if i.resolution else 0
+        b = i.average_bandwidth or i.bandwidth
+        if r >= res and b >= bw:
+            bw, res, stream = b, r, s
+    yield [None, stream.uri]
+
+
+def read_m3u(url):
+    if not url.endswith('m3u'): return
+    r = requests.get(url)
+    r.raise_for_status()
+    for u in process(r.text.splitlines()):
+        yield u
+
+
+icy_field_names = ['icy-description']  #, 'icy-name', 'icy-genre', 'icy-url']
+
+
+def icy_fields(headers):
+    for n in icy_field_names:
+        v = headers.get(n)
+        if v: yield v
+
+
+def stream(url):
+    headers = head(url)
+    #for h in headers.items():        print('\033[32m' + str(h) + '\033[0m')
+    extinf = ''
+    extinf = ' '.join(icy_fields(headers))
+    yield [extinf, url]
+
+
+def process(lines):
+    processors = [best_variant, read_m3u, stream]
+    processors = [not_raising(p) for p in processors]
+
+    prev_line = ''
+    for line in lines:
+        line = line.strip()
+        if line and not line.startswith('#'):
+            extinf = prev_line.split(
+                ',', 1)[1] if prev_line.startswith('#EXTINF:') else ''
+            prefix = prev_line[2:] if prev_line.startswith('#<') else ''
+            suffix = prev_line[2:] if prev_line.startswith('#>') else ''
+            url = line
+
+            #print('\033[33m' + url + '\033[0m')
+            for p in processors:
+                i = 0
+                for u in p(url):
+                    i += 1
+                    if not u[0]: u[0] = extinf
+                    u[0] = (' '.join([prefix, u[0], suffix])).strip()
+                    yield u
+                if i: break
+
+        prev_line = line
+
+
+def parse_args():
+    from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
+
+    parser = ArgumentParser(
+        description=__doc__,
+        formatter_class=ArgumentDefaultsHelpFormatter, )
+    parser.add_argument('infiles', nargs='+', help='input files')
+
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    print('#EXTM3U')
+    for infile in args.infiles:
+        with open(infile) as f:
+            for u in process(f):
+                if u[0]:
+                    print('#EXTINF:-1,', u[0])
+                print(u[1])
+
+
+main()
