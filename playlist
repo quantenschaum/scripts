@@ -6,16 +6,6 @@
 import requests
 
 
-def head(url):
-    return requests.head(url).headers
-
-
-def peek(url):
-    with requests.get(url, stream=True) as r:
-        for c in r.iter_content(128):
-            return str(c)
-
-
 def best_variant(url):
     if not url.endswith('m3u8'): return
     import m3u8
@@ -29,6 +19,16 @@ def best_variant(url):
         if r >= res and b >= bw:
             bw, res, stream = b, r, s
     yield [None, stream.uri]
+
+
+def head(url):
+    return requests.head(url).headers
+
+
+def peek(url):
+    with requests.get(url, stream=True) as r:
+        for c in r.iter_content(128):
+            return str(c)
 
 
 def read_m3u(url):
@@ -50,7 +50,20 @@ def icy_fields(headers):
         if v: yield v
 
 
-def stream(url):
+def streamlink(url):
+    from streamlink import streams
+    s = streams(url)
+    for k in reversed(s.keys()):
+        if k != 'worst':
+            url = s[k].url
+            if url.startswith('http'):
+                break
+    if not url.startswith('http'):
+        raise Exception('no URL found')
+    yield [None, url]
+
+
+def streaminfo(url):
     headers = head(url)
     #for h in headers.items():        print('\033[32m' + str(h) + '\033[0m')
     extinf = ' '.join(icy_fields(headers))
@@ -58,7 +71,7 @@ def stream(url):
 
 
 def process(lines):
-    processors = [best_variant, read_m3u, stream]
+    processors = [best_variant, read_m3u, streamlink, streaminfo]
 
     prev_line = ''
     for line in lines:
