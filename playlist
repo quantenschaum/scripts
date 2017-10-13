@@ -6,19 +6,6 @@
 import requests
 
 
-def not_raising(func, log=0):
-    import traceback
-
-    def logging_func(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except:
-            if log:
-                traceback.print_exc()
-
-    return logging_func
-
-
 def head(url):
     return requests.head(url).headers
 
@@ -72,7 +59,6 @@ def stream(url):
 
 def process(lines):
     processors = [best_variant, read_m3u, stream]
-    processors = [not_raising(p) for p in processors]
 
     prev_line = ''
     for line in lines:
@@ -87,11 +73,14 @@ def process(lines):
             #print('\033[33m' + url + '\033[0m')
             for p in processors:
                 i = 0
-                for u in p(url):
-                    i += 1
-                    if not u[0]: u[0] = extinf
-                    u[0] = (' '.join([prefix, u[0], suffix])).strip()
-                    yield u
+                try:
+                    for u in p(url):
+                        i += 1
+                        if not u[0]: u[0] = extinf
+                        u[0] = (' '.join([prefix, u[0], suffix])).strip()
+                        yield u
+                except Exception:
+                    pass
                 if i: break
 
         prev_line = line
