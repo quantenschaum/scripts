@@ -23,6 +23,12 @@ def head(url):
     return requests.head(url).headers
 
 
+def peek(url):
+    with requests.get(url, stream=True) as r:
+        for c in r.iter_content(128):
+            return str(c)
+
+
 def best_variant(url):
     if not url.endswith('m3u8'): return
     import m3u8
@@ -39,8 +45,9 @@ def best_variant(url):
 
 
 def read_m3u(url):
-    if url.endswith('m3u') or head(url).get(
-            'Content-Type') == 'audio/x-mpegurl':
+    if url.endswith('m3u') \
+        or head(url).get('Content-Type') == 'audio/x-mpegurl' \
+        or '#EXTM3U' in peek(url):
         r = requests.get(url)
         r.raise_for_status()
         for u in process(r.text.splitlines()):
@@ -59,7 +66,6 @@ def icy_fields(headers):
 def stream(url):
     headers = head(url)
     #for h in headers.items():        print('\033[32m' + str(h) + '\033[0m')
-    extinf = ''
     extinf = ' '.join(icy_fields(headers))
     yield [extinf, url]
 
