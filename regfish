@@ -1,0 +1,68 @@
+#!/bin/bash
+
+test $# -lt 2 && { echo "usage $0 FQDN TOKEN [4|6|46] [force] [TTL]"; exit; }
+
+FQDN=$1
+TOKEN=$2
+IPversion=${3:-4}
+FORCE=${4:-0}
+TTL=${5:-600}
+IPFILE="/run/shm/regfish/${FQDN}"
+#echo $FQDN $TOKEN $IPversion ${IPFILE} $FORCE
+
+# --------------------------------------------------
+
+IPURL="http://www.regfish.de/show_myip.php"
+
+
+function myip {
+  IP=`wget -$1 -q -O - $IPURL`
+  echo $IP
+}
+
+function ipv {
+  if [[ $1 == *.* ]]; then
+    echo "."
+  elif [[ $1 == *:* ]]; then
+    echo ":"
+  fi
+}
+
+function changed {
+  grep "$1" $IPFILE &>/dev/null && echo 0 || echo 1
+}
+
+function save {
+  test -d ${IPFILE%/*} || mkdir ${IPFILE%/*}
+  rm $IPFILE &>/dev/null
+  for L in "$@"; do
+    echo $L >>$IPFILE
+  done
+}
+
+OK=0
+URL='https://dyndns.regfish.de/?fqdn='$FQDN'&forcehost='$FORCE'&token='$TOKEN'&ttl='$TTL
+
+if [[ $IPversion == *4* ]]; then
+  IP4=`myip 4`
+  (( OK += `changed $IP4` ))
+  URL=$URL'&ipv4='$IP4
+fi
+
+if [[ $IPversion == *6* ]]; then
+  IP6=`myip 6`
+  (( OK += `changed $IP6` ))
+  URL=$URL'&ipv6='$IP6
+fi
+
+test $OK -eq 0 && exit
+
+#echo $OK $URL
+OK=`wget -q -O - --no-check-certificate "$URL"`
+
+if [[ $OK == *success* ]]; then
+  save $IP4 $IP6
+else
+  echo $OK
+  exit 1
+fi
