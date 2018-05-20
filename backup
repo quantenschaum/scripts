@@ -1,0 +1,133 @@
+#!/bin/bash -e
+
+#export LANGUAGE=C
+#export LC_ALL=C.UTF-8
+
+PREFIX=$HOSTNAME
+SNAP=_snapshot_
+AGE=240
+
+# https://stackoverflow.com/questions/192249/how-do-i-parse-command-line-arguments-in-bash
+OTHER=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -p)
+    PREFIX=$2
+    shift 2
+    ;;
+    -f)
+    FORCE=yes
+    shift
+    ;;
+    -l)
+    LIST=yes
+    shift
+    ;;
+    -c)
+    CHECK=yes
+    shift
+    ;;
+    -t)
+    AGE=$2
+    shift 2
+    ;;
+    -v)
+    V="--info"
+    shift
+    ;;
+    -vv)
+    V="--debug"
+    shift
+    ;;
+    -*)
+    echo "unknown option: $1"
+    exit 1
+    ;;
+    *)
+    OTHER+=("$1")
+    shift
+    ;;
+  esac
+done
+set -- "${OTHER[@]}" # restore positionals
+
+if [[ $# < 1 ]]; then
+cat <<EOF
+usage: $0 [-f] [-l] [-c] [-t minutes] [-p prefix] repository path...
+
+positional args:
+  repository       borg repository URL
+  path             path(s) to archive
+
+options:
+  -p               archive prefix (default \$HOSTNAME)
+  -t               archive age in minutes, don't create if last is younger (default 240)
+  -f               force archive creation
+  -l               don't create, but list archives
+  -c               don't create, but check archives
+  -v               verbose, adds --info to borg options (-vv for --debug)
+
+see also https://borgbackup.readthedocs.io/
+EOF
+exit
+fi
+
+export BORG_REPO="$1"
+shift
+
+# show progress when invoked from console
+[[ ! -t 1 ]] || P="--progress"
+
+if [[ $LIST = yes ]]; then
+  borg $V info
+  borg $V list
+  exit
+fi
+
+if [[ $CHECK = yes ]]; then
+  borg $V check $P
+  exit
+fi
+
+HASH=$(echo "$BORG_REPO $*" |md5sum |cut -d" " -f1)
+MARKER="$HOME/.cache/borg/$HASH.marker"
+
+if [[ $FORCE != yes ]]; then
+  on_ac_power || exit 1
+  [[ ! -f $MARKER || "$(find $MARKER -mmin +$AGE)" ]] || exit 2
+fi
+
+borg with-lock $V :: true
+
+mksnap() {
+  btrfs subvolume snapshot -r "$1" "$2"
+}
+
+rmsnap() {
+  btrfs subvolume delete "$1"
+}
+
+PATHS=()
+for S in "$@"; do
+  test -d "$S/$SNAP" && rmsnap "$S/$SNAP"
+  if mksnap "$S" "$S/$SNAP"; then
+    PATHS+=("$S/$SNAP")
+  else
+    PATHS+=("$S")
+  fi
+done
+echo "PATHS=${PATHS[@]}"
+
+borg info
+borg create --stats --exclude-caches --exclude-if-present .nobackup --keep-exclude-tags $P ::$PREFIX-{now} "${PATHS[@]}"
+borg prune --stats --prefix $PREFIX --keep-last 5 --keep-within 7d --keep-daily 30 --keep-weekly 10 --keep-monthly 30
+borg list
+
+for S in "${PATHS[@]}"; do
+  if [[ $S = */$SNAP ]]; then
+    rmsnap "$S"
+  fi
+done
+
+echo "finished successfully"
+echo "$BORG_REPO $* $(date -Is)" >$MARKER
