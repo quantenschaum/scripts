@@ -5,3 +5,4 @@ my personal collection of scripts for different purposes
 - `shrink` wrapper for ffmpeg to recode videos, simplifies ffmpeg's args
 - `playlist` turn a list of URLs into an M3U playlist
 - `regfish` dyndns updater for regfish
+- `backup` backup script for borg backup with btrfs snapshots
