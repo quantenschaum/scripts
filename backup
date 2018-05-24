@@ -27,6 +27,10 @@ while [[ $# -gt 0 ]]; do
     CHECK=yes
     shift
     ;;
+    -s)
+    STATUS=yes
+    shift
+    ;;
     -t)
     AGE=$2
     shift 2
@@ -65,6 +69,7 @@ options:
   -f               force archive creation
   -l               don't create, but list archives
   -c               don't create, but check archives
+  -s               show backup status (how old is last backup)
   -v               verbose, adds --info to borg options (-vv for --debug)
 
 see also https://borgbackup.readthedocs.io/
@@ -91,6 +96,14 @@ fi
 
 HASH=$(echo "$BORG_REPO $*" |md5sum |cut -d" " -f1)
 MARKER="$HOME/.cache/borg/$HASH.marker"
+
+if [[ $STATUS = yes ]]; then
+  if [[ -n "$P" || -n "$V" ]]; then
+    date -r $MARKER
+  fi
+  [[ -f $MARKER && "$(find $MARKER -mmin -$AGE)" ]]
+  exit
+fi
 
 if [[ $FORCE != yes ]]; then
   on_ac_power || exit 1
