@@ -4,7 +4,7 @@
 #export LC_ALL=C.UTF-8
 
 PREFIX=$HOSTNAME
-SNAP=_snapshot_
+SNAP=.backup_
 AGE=240
 
 # https://stackoverflow.com/questions/192249/how-do-i-parse-command-line-arguments-in-bash
@@ -12,44 +12,44 @@ OTHER=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -p)
-    PREFIX=$2
-    shift 2
+      PREFIX=$2
+      shift 2
     ;;
     -f)
-    FORCE=yes
-    shift
+      FORCE=yes
+      shift
     ;;
     -l)
-    LIST=yes
-    shift
+      LIST=yes
+      shift
     ;;
     -c)
-    CHECK=yes
-    shift
+      CHECK=yes
+      shift
     ;;
     -s)
-    STATUS=yes
-    shift
+      STATUS=yes
+      shift
     ;;
     -t)
-    AGE=$2
-    shift 2
+      AGE=$2
+      shift 2
     ;;
     -v)
-    V="--info"
-    shift
+      V="--info"
+      shift
     ;;
     -vv)
-    V="--debug"
-    shift
+      V="--debug"
+      shift
     ;;
     -*)
-    echo "unknown option: $1"
-    exit 1
+      echo "unknown option: $1"
+      exit 1
     ;;
     *)
-    OTHER+=("$1")
-    shift
+      OTHER+=("$1")
+      shift
     ;;
   esac
 done
