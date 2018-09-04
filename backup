@@ -59,6 +59,8 @@ if [[ $# < 1 ]]; then
 cat <<EOF
 usage: $0 [-f] [-l] [-c] [-t minutes] [-p prefix] repository path...
 
+version 2018-09-04
+
 positional args:
   repository       borg repository URL
   path             path(s) to archive
@@ -71,6 +73,8 @@ options:
   -c               don't create, but check archives
   -s               show backup status (how old is last backup)
   -v               verbose, adds --info to borg options (-vv for --debug)
+
+To initialise a borg repository, use 'borg init'.
 
 see also https://borgbackup.readthedocs.io/
 EOF
@@ -106,7 +110,7 @@ if [[ $STATUS = yes ]]; then
 fi
 
 if [[ $FORCE != yes ]]; then
-  on_ac_power || exit 1
+  on_ac_power || [[ $? = 255 ]] || exit 1
   [[ ! -f $MARKER || "$(find $MARKER -mmin +$AGE)" ]] || exit 2
 fi
 
