@@ -4,7 +4,7 @@
 #export LC_ALL=C.UTF-8
 
 PREFIX=$HOSTNAME
-SNAP=.backup_
+SNAP=".backup_"
 AGE=240
 
 # https://stackoverflow.com/questions/192249/how-do-i-parse-command-line-arguments-in-bash
@@ -57,9 +57,9 @@ set -- "${OTHER[@]}" # restore positionals
 
 if [[ $# < 1 ]]; then
 cat <<EOF
-usage: $0 [-f] [-l] [-c] [-t minutes] [-p prefix] repository path...
+usage: $0 [options] repository path...
 
-version 2018-09-04
+version 2018-11-30
 
 positional args:
   repository       borg repository URL
@@ -71,7 +71,7 @@ options:
   -f               force archive creation
   -l               don't create, but list archives
   -c               don't create, but check archives
-  -s               show backup status (how old is last backup)
+  -s               show backup status (date of last successful backup)
   -v               verbose, adds --info to borg options (-vv for --debug)
 
 To initialise a borg repository, use 'borg init'.
@@ -88,33 +88,37 @@ shift
 [[ ! -t 1 ]] || P="--progress"
 
 if [[ $LIST = yes ]]; then
-  borg $V info
-  borg $V list
+  borg info $V
+  borg list $V
   exit
 fi
 
 if [[ $CHECK = yes ]]; then
-  borg $V check $P
+  borg check $V $P
   exit
 fi
 
-HASH=$(echo "$BORG_REPO $*" |md5sum |cut -d" " -f1)
-MARKER="$HOME/.cache/borg/$HASH.marker"
+HASH=$(echo "$BORG_REPO $*" |md5sum |cut -d" " -f1 |cut -b-10)
+LOG="/var/log/backup-$HASH.log"
 
 if [[ $STATUS = yes ]]; then
   if [[ -n "$P" || -n "$V" ]]; then
-    date -r $MARKER
+    date -r $LOG
   fi
-  [[ -f $MARKER && "$(find $MARKER -mmin -$AGE)" ]]
-  exit
+  if [[ -f $LOG && "$(find $LOG -mmin -$AGE)" ]]; then
+    echo "OK"
+    exit 0
+  else
+    echo "OLD"
+    exit 100
+  fi
 fi
 
 if [[ $FORCE != yes ]]; then
   on_ac_power || [[ $? = 255 ]] || exit 1
-  [[ ! -f $MARKER || "$(find $MARKER -mmin +$AGE)" ]] || exit 2
+  [[ ! -f $LOG || "$(find $LOG -mmin +$AGE)" ]] || exit 2
+  borg with-lock $V :: true
 fi
-
-borg with-lock $V :: true
 
 mksnap() {
   btrfs subvolume snapshot -r "$1" "$2"
@@ -123,6 +127,9 @@ mksnap() {
 rmsnap() {
   btrfs subvolume delete "$1"
 }
+
+{
+date -Is
 
 PATHS=()
 for S in "$@"; do
@@ -135,10 +142,10 @@ for S in "$@"; do
 done
 echo "PATHS=${PATHS[@]}"
 
-borg info
-borg create --stats --exclude-caches --exclude-if-present .nobackup --keep-exclude-tags $P ::$PREFIX-{now} "${PATHS[@]}"
-borg prune --stats --prefix $PREFIX --keep-last 5 --keep-within 7d --keep-daily 30 --keep-weekly 10 --keep-monthly 30
-borg list
+borg info $V
+borg create $V $P --stats --exclude-caches --exclude-if-present .nobackup --keep-exclude-tags ::$PREFIX-{now} "${PATHS[@]}"
+borg prune $V $P --stats --prefix $PREFIX --keep-last 5 --keep-within 7d --keep-daily 30 --keep-weekly 10 --keep-monthly 30
+borg list $V
 
 for S in "${PATHS[@]}"; do
   if [[ $S = */$SNAP ]]; then
@@ -146,5 +153,10 @@ for S in "${PATHS[@]}"; do
   fi
 done
 
-echo "finished successfully"
-echo "$BORG_REPO $* $(date -Is)" >$MARKER
+echo "SUCCESS"
+} 2>&1 |tee $LOG-
+
+#echo "$BORG_REPO $* $(date -Is)" >$LOG
+if [[ `tail -n1 $LOG-` = SUCCESS ]]; then
+  mv $LOG- $LOG
+fi
