@@ -4,7 +4,7 @@
 #export LC_ALL=C.UTF-8
 
 PREFIX=$HOSTNAME
-SNAP=".backup_"
+SNAP="_backup_"
 AGE=240
 
 # https://stackoverflow.com/questions/192249/how-do-i-parse-command-line-arguments-in-bash
@@ -133,9 +133,10 @@ date -Is
 
 PATHS=()
 for S in "$@"; do
-  test -d "$S/$SNAP" && rmsnap "$S/$SNAP"
-  if mksnap "$S" "$S/$SNAP"; then
-    PATHS+=("$S/$SNAP")
+  SS="$S/$SNAP"
+  test -d "$SS" && rmsnap "$SS"
+  if mksnap "$S" "$SS"; then
+    PATHS+=("$SS")
   else
     PATHS+=("$S")
   fi
@@ -143,7 +144,7 @@ done
 echo "PATHS=${PATHS[@]}"
 
 borg info $V
-borg create $V $P --stats --exclude-caches --exclude-if-present .nobackup --keep-exclude-tags ::$PREFIX-{now} "${PATHS[@]}"
+borg create $V $P --stats --exclude-caches --exclude-if-present .nobackup --keep-exclude-tags --numeric-owner ::$PREFIX-{now} "${PATHS[@]}"
 borg prune $V $P --stats --prefix $PREFIX --keep-last 5 --keep-within 7d --keep-daily 30 --keep-weekly 10 --keep-monthly 30
 borg list $V
 
