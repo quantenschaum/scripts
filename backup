@@ -3,9 +3,8 @@
 #export LANGUAGE=C
 #export LC_ALL=C.UTF-8
 
-PREFIX=$HOSTNAME
-SNAP="_backup_"
 AGE=240
+PREFIX=$HOSTNAME
 
 # https://stackoverflow.com/questions/192249/how-do-i-parse-command-line-arguments-in-bash
 OTHER=()
@@ -131,30 +130,34 @@ rmsnap() {
 {
 date -Is
 
+borg info $V
+
 PATHS=()
+SNAPSHOTS=()
 for S in "$@"; do
-  SS="$S/$SNAP"
+  SS="/@${S##*/}"
   test -d "$SS" && rmsnap "$SS"
   if mksnap "$S" "$SS"; then
     PATHS+=("$SS")
+    SNAPSHOTS+=("$SS")
   else
     PATHS+=("$S")
   fi
 done
+echo "SRCS=$@"
 echo "PATHS=${PATHS[@]}"
+echo "SNAPSHOTS=${SNAPSHOTS[@]}"
 
-borg info $V
 borg create $V $P --stats --exclude-caches --exclude-if-present .nobackup --keep-exclude-tags ::$PREFIX-{now} "${PATHS[@]}"
+
+for S in "${SNAPSHOTS[@]}"; do
+  rmsnap "$S"
+done
+
 borg prune $V $P --stats --prefix $PREFIX --keep-last 5 --keep-within 7d --keep-daily 30 --keep-weekly 10 --keep-monthly 30
 borg list $V
 
-for S in "${PATHS[@]}"; do
-  if [[ $S = */$SNAP ]]; then
-    rmsnap "$S"
-  fi
-done
-
-echo "SUCCESS"
+#echo "SUCCESS"
 } 2>&1 |tee $LOG-
 
 #echo "$BORG_REPO $* $(date -Is)" >$LOG
