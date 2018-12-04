@@ -144,7 +144,7 @@ done
 echo "PATHS=${PATHS[@]}"
 
 borg info $V
-borg create $V $P --stats --exclude-caches --exclude-if-present .nobackup --keep-exclude-tags --numeric-owner ::$PREFIX-{now} "${PATHS[@]}"
+borg create $V $P --stats --exclude-caches --exclude-if-present .nobackup --keep-exclude-tags ::$PREFIX-{now} "${PATHS[@]}"
 borg prune $V $P --stats --prefix $PREFIX --keep-last 5 --keep-within 7d --keep-daily 30 --keep-weekly 10 --keep-monthly 30
 borg list $V
 
