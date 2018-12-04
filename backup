@@ -157,7 +157,7 @@ done
 borg prune $V $P --stats --prefix $PREFIX --keep-last 5 --keep-within 7d --keep-daily 30 --keep-weekly 10 --keep-monthly 30
 borg list $V
 
-#echo "SUCCESS"
+echo "SUCCESS"
 } 2>&1 |tee $LOG-
 
 #echo "$BORG_REPO $* $(date -Is)" >$LOG
