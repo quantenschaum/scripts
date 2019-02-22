@@ -82,33 +82,27 @@ else
   function log { :; }
 fi
 
-IPVERSION=${IPVERSION:-4 6}
+for V in ${IPVERSION:-4 6}; do
+  IPS="$IPS`curl -sL$V $IPURL` "
+done
+
+log "IPS=$IPS"
 
 for FQDN in $DOMAINS; do
   IPFILE="/run/shm/regfish/$FQDN"
   URL="https://dyndns.regfish.de/?token=${TOKEN}&fqdn=${FQDN}&forcehost=${FORCE:-0}&ttl=${TTL:-600}"
 
-  function getip {
-    curl -sL$1 $IPURL
-  }
-
   function unchanged {
     grep "$1" $IPFILE &>/dev/null
   }
 
-  unset IPS
-  for V in $IPVERSION; do
-    IP=`getip $V`
-    if [[ $IP ]]; then
-      unchanged $IP || CHANGED=1
-      IPS="$IPS$IP "
-      URL="$URL&ipv$V=$IP"
-    fi
+  for IP in $IPS; do
+    unchanged $IP || CHANGED=1
+    [[ $IP == *:* ]] && V=6 || V=4
+    URL="$URL&ipv$V=$IP"
   done
 
   log "FQDN=$FQDN"
-  log "IPVERSION=$IPVERSION"
-  log "IPS=$IPS"
   log "IPFILE=$IPFILE"
   log "CHANGED=$CHANGED"
 
