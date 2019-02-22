@@ -112,7 +112,7 @@ for FQDN in $DOMAINS; do
   log "IPFILE=$IPFILE"
   log "CHANGED=$CHANGED"
 
-  [[ -z $CHANGED ]] && break
+  [[ -z $CHANGED ]] && continue
 
   log "$URL"
 
@@ -125,7 +125,6 @@ for FQDN in $DOMAINS; do
     echo "$IPS" >$IPFILE
   else
     echo $RESPONSE
-    exit 1
   fi
 
 done
