@@ -1,68 +1,131 @@
 #!/bin/bash
 
-test $# -lt 2 && { echo "usage $0 FQDN TOKEN [4|6|46] [force] [TTL]"; exit; }
+# simple script to update dyndns entries on https://www.regfish.de/
 
-FQDN=$1
-TOKEN=$2
-IPversion=${3:-4}
-FORCE=${4:-0}
-TTL=${5:-600}
-IPFILE="/run/shm/regfish/${FQDN}"
-#echo $FQDN $TOKEN $IPversion ${IPFILE} $FORCE
-
-# --------------------------------------------------
-
+APIDOC="https://www.regfish.de/domains/dyndns/dokumentation"
 IPURL="http://www.regfish.de/show_myip.php"
 
+# https://stackoverflow.com/questions/192249/how-do-i-parse-command-line-arguments-in-bash
+OTHER=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -t|--token)
+      TOKEN=$2
+      shift 2
+    ;;
+    -l|--ttl)
+      TTL=$2
+      shift 2
+    ;;
+    -f|--force)
+      FORCE=1
+      shift
+    ;;
+    -F)
+      CHANGED=1
+      shift
+    ;;
+    -v)
+      VERBOSE=1
+      shift
+    ;;
+    -4)
+      IPVERSION="${IPVERSION}4 "
+      shift
+    ;;
+    -6)
+      IPVERSION="${IPVERSION}6 "
+      shift
+    ;;
+    -*)
+      echo "unknown option: $1"
+      exit 1
+    ;;
+    *)
+      OTHER+=("$1")
+      shift
+    ;;
+  esac
+done
+set -- "${OTHER[@]}" # restore positionals
+DOMAINS="$@"
 
-function myip {
-  IP=`wget -$1 -q -O - $IPURL`
-  echo $IP
-}
+if [[ $# < 1 ]]; then
+cat <<EOF
+usage: $0 [options] -t TOKEN FQDN...
 
-function ipv {
-  if [[ $1 == *.* ]]; then
-    echo "."
-  elif [[ $1 == *:* ]]; then
-    echo ":"
-  fi
-}
+version 2019-02-22
 
-function changed {
-  grep "$1" $IPFILE &>/dev/null && echo 0 || echo 1
-}
+positional args:
+  FQDN             fully qualified domain name, ending in .
 
-function save {
-  test -d ${IPFILE%/*} || mkdir ${IPFILE%/*}
-  rm $IPFILE &>/dev/null
-  for L in "$@"; do
-    echo $L >>$IPFILE
-  done
-}
+options:
+  -t,--token       authentication token (required)
+  -l,--ttl         TTL (600)
+  -f,--force       force creation of DNS entry (no)
+  -F               force update, even if unchanged (no)
+  -4               use IPv4 address (yes)
+  -6               use IPv6 address (yes)
 
-OK=0
-URL='https://dyndns.regfish.de/?fqdn='$FQDN'&forcehost='$FORCE'&token='$TOKEN'&ttl='$TTL
-
-if [[ $IPversion == *4* ]]; then
-  IP4=`myip 4`
-  (( OK += `changed $IP4` ))
-  URL=$URL'&ipv4='$IP4
+see also $APIDOC
+EOF
+exit
 fi
 
-if [[ $IPversion == *6* ]]; then
-  IP6=`myip 6`
-  (( OK += `changed $IP6` ))
-  URL=$URL'&ipv6='$IP6
-fi
+################################################################################
 
-test $OK -eq 0 && exit
-
-#echo $OK $URL
-OK=`wget -q -O - --no-check-certificate "$URL"`
-
-if [[ $OK == *success* ]]; then
-  save $IP4 $IP6
+if [[ $VERBOSE ]]; then
+  function log {
+    echo "$@"
+  }
 else
-  echo $OK
-  exit 1
+  function log { :; }
 fi
+
+IPVERSION=${IPVERSION:-4 6}
+
+for FQDN in $DOMAINS; do
+  IPFILE="/run/shm/regfish/$FQDN"
+  URL="https://dyndns.regfish.de/?token=${TOKEN}&fqdn=${FQDN}&forcehost=${FORCE:-0}&ttl=${TTL:-600}"
+
+  function getip {
+    curl -sL$1 $IPURL
+  }
+
+  function unchanged {
+    grep "$1" $IPFILE &>/dev/null
+  }
+
+  unset IPS
+  for V in $IPVERSION; do
+    IP=`getip $V`
+    if [[ $IP ]]; then
+      unchanged $IP || CHANGED=1
+      IPS="$IPS$IP "
+      URL="$URL&ipv$V=$IP"
+    fi
+  done
+
+  log "FQDN=$FQDN"
+  log "IPVERSION=$IPVERSION"
+  log "IPS=$IPS"
+  log "IPFILE=$IPFILE"
+  log "CHANGED=$CHANGED"
+
+  [[ -z $CHANGED ]] && break
+
+  log "$URL"
+
+  RESPONSE=`curl -sL "$URL"`
+
+  log "$? - $RESPONSE"
+
+  if [[ $RESPONSE == *success* ]]; then
+    mkdir ${IPFILE%/*} &>/dev/null
+    echo "$IPS" >$IPFILE
+  else
+    echo $RESPONSE
+    exit 1
+  fi
+
+done
